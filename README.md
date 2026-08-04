@@ -122,7 +122,7 @@ A fair, hybrid waitqueue mutex designed for shared Wasm GC objects.
 
 - **Type Definition**:
   ```wat
-  (type $mutex (shared (struct (field (mut i32)) (field (ref (shared waitqueue))))))
+  (type $mutex (shared (struct (field $state (mut i32)) (field $waitqueue (ref (shared waitqueue))))))
   ```
 
 - **Functions**:
@@ -137,6 +137,29 @@ A fair, hybrid waitqueue mutex designed for shared Wasm GC objects.
     - On the main browser thread (`thread_supports_wait == 0`): Continues spinning to prevent blocking the browser UI thread.
   - `mutex_unlock (param (ref $mutex))`:
     Atomically clears the lock state to `0` and wakes one waiting thread via `(waitqueue.notify ... 1)`.
+
+### Queue (`common/queue.wat`)
+
+A blocking, thread-safe Multi-Producer Multi-Consumer (MPMC) linked-list queue for shared Wasm GC objects with `struct.wait` & `waitqueue.notify` thread signaling.
+
+- **Type Definition**:
+  ```wat
+  (type $node (shared (struct (field $val (ref null (shared any))) (field $next (mut (ref null $node))))))
+  (type $queue (shared (struct
+    (field $lock (ref $mutex))
+    (field $head (mut (ref null $node)))
+    (field $tail (mut (ref null $node)))
+    (field $size (mut i32))
+    (field $waitqueue (ref (shared waitqueue)))
+    (field $signal (mut i32))
+  )))
+  ```
+
+- **Functions**:
+  - `queue_new () -> (ref $queue)`: Allocates and initializes an empty queue.
+  - `queue_push (param $q (ref $queue)) (param $val (ref null (shared any)))`: Enqueues a shared work item and notifies one waiting worker thread.
+  - `queue_pop (param $q (ref $queue)) -> (ref null (shared any))`: Dequeues a work item, blocking on the waitqueue if empty until an item is pushed.
+  - `queue_size (param $q (ref $queue)) -> i32`: Thread-safe query of the current backlog depth.
 
 ---
 
@@ -155,9 +178,13 @@ A fair, hybrid waitqueue mutex designed for shared Wasm GC objects.
 │   ├── gen_index.py     # Generates top-level index.html from template
 │   └── serve.py         # Local HTTP server with COOP/COEP headers
 ├── common/
-│   └── mutex.wat        # Waitqueue-based mutex with struct.wait and runtime thread wait detection
+│   ├── mutex.wat        # Waitqueue-based mutex with struct.wait and runtime thread wait detection
+│   └── queue.wat        # Blocking MPMC queue with waitqueue notification
 ├── hello/               # Multithreaded "Hello, World!" demonstration
 │   └── main.wat         # Spawns worker threads using string constants & string builtins
-└── philosophers/        # Dining Philosophers demonstration
-    └── main.wat         # Multithreaded deadlock-free dining philosophers with mutexes
+├── philosophers/        # Dining Philosophers demonstration
+│   └── main.wat         # Multithreaded deadlock-free dining philosophers with mutexes
+└── workqueue/           # Producer-Consumer Work Queue demonstration
+    ├── main.wat         # Producer pushes Fibonacci tasks; worker pool dequeues & computes
+    └── template.html    # Interactive dashboard displaying live throughput & scale button
 ```

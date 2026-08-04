@@ -47,5 +47,6 @@ int runtime_thread_supports_wait(void) {
 
 int main(void) {
   wasm_main();
+  emscripten_exit_with_live_runtime();
   return 0;
 }

@@ -1,7 +1,7 @@
 (module
   ;; Function types for worker thread routines
   (type $thread_fn (shared (func (param (ref null (shared any))))))
-  (type $task (shared (struct (field (ref $thread_fn)) (field (ref null (shared any))))))
+  (type $task (shared (struct (field $fn (ref $thread_fn)) (field $arg (ref null (shared any))))))
 
   ;; Imports from JS runtime environment ("env")
   (global $shared_heap_root (export "_shared_heap_root") (import "env" "_shared_heap_root") (mut (ref null (shared any))))
@@ -45,8 +45,8 @@
     (local $task (ref $task))
     (local.set $task (ref.cast (ref $task) (global.get $gc_thread_state)))
     (call_ref $thread_fn
-      (struct.get $task 1 (local.get $task))
-      (struct.get $task 0 (local.get $task))
+      (struct.get $task $arg (local.get $task))
+      (struct.get $task $fn (local.get $task))
     )
   )
 )

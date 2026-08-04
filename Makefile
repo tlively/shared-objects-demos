@@ -7,7 +7,7 @@ PYTHON ?= python3
 
 # Emscripten flags for bootstrapping shared Wasm GC over pthreads
 EMCC_FLAGS ?= -pthread -sSHARED_WASMGC -sERROR_ON_UNDEFINED_SYMBOLS=0 \
-              -sEXIT_RUNTIME -sPROXY_TO_PTHREAD --js-library libruntime.js
+              -sEXIT_RUNTIME -sPROXY_TO_PTHREAD -sEXPORTED_RUNTIME_METHODS=wasmExports --js-library libruntime.js
 
 # Binaryen feature flags for shared-everything threads and Wasm GC
 WASM_FLAGS ?= --enable-threads --enable-reference-types --enable-gc --enable-shared-everything
@@ -18,7 +18,7 @@ BUILD_DIR = build
 DEP_DIR = .deps
 
 # Demos list
-DEMOS = hello philosophers
+DEMOS = hello philosophers workqueue
 
 # Discover .wat source files in demo and runtime directories
 WAT_SRCS = $(wildcard $(addsuffix /*.wat,$(DEMOS)) common/*.wat runtime.wat)
@@ -63,7 +63,11 @@ $(BUILD_DIR)/%/main.js: $(BUILD_DIR)/runtime.js
 
 $(BUILD_DIR)/%/main.html: $(BUILD_DIR)/runtime.html
 	@mkdir -p $(dir $@)
-	sed 's/runtime\.js/main\.js/g' $< > $@
+	@if [ -f $*/template.html ]; then \
+		sed 's/runtime\.js/main\.js/g' $*/template.html > $@; \
+	else \
+		sed 's/runtime\.js/main\.js/g' $< > $@; \
+	fi
 
 # Generic target for building any demo in DEMOS (produces .wasm, .js, and .html)
 $(DEMOS): %: $(BUILD_DIR)/%/main.wasm $(BUILD_DIR)/%/main.js $(BUILD_DIR)/%/main.html

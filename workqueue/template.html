@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shared Wasm GC - Work Queue Demo</title>
+    <style>
+      :root {
+        --primary: #0969da;
+        --primary-hover: #085bc4;
+        --success: #1a7f37;
+        --bg: #f6f8fa;
+        --card-bg: #ffffff;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --text-muted: #656d76;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--bg);
+        color: var(--text);
+        margin: 0;
+        padding: 30px 20px;
+        display: flex;
+        justify-content: center;
+      }
+      .container {
+        max-width: 800px;
+        width: 100%;
+      }
+      header {
+        margin-bottom: 24px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 16px;
+      }
+      h1 {
+        margin: 0 0 8px 0;
+        font-size: 1.8rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      p.subtitle {
+        margin: 0;
+        color: var(--text-muted);
+        line-height: 1.5;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px 20px;
+        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.04);
+        display: flex;
+        flex-direction: column;
+      }
+      .card .label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 8px;
+      }
+      .card .value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .card .unit {
+        font-size: 0.85rem;
+        font-weight: 400;
+        color: var(--text-muted);
+        margin-left: 4px;
+      }
+      .card.highlight .value {
+        color: var(--success);
+      }
+      .controls {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .controls-info {
+        flex: 1;
+        min-width: 250px;
+      }
+      .controls-info h3 {
+        margin: 0 0 4px 0;
+        font-size: 1.05rem;
+      }
+      .controls-info p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+      .btn {
+        background-color: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 12px 24px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.15s ease, transform 0.05s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .btn:hover {
+        background-color: var(--primary-hover);
+      }
+      .btn:active {
+        transform: scale(0.98);
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border-radius: 12px;
+        background-color: #dafbe1;
+        color: #1a7f37;
+        margin-left: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>⚡ Shared Wasm GC Work Queue <span class="badge">Multi-threaded</span></h1>
+        <p class="subtitle">
+          A dedicated producer thread continuously pushes Fibonacci computations (<code>fib(24)</code>) onto a shared MPMC queue.
+          Worker threads concurrently dequeue and compute items using waitqueue-synchronized Wasm GC objects.
+        </p>
+      </header>
+
+      <div class="grid">
+        <div class="card highlight">
+          <span class="label">Throughput</span>
+          <div>
+            <span class="value" id="rate-val">0</span>
+            <span class="unit">tasks/sec</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <span class="label">Total Executed</span>
+          <div>
+            <span class="value" id="total-val">0</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <span class="label">Active Workers</span>
+          <div>
+            <span class="value" id="worker-val">0</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <span class="label">Queue Depth</span>
+          <div>
+            <span class="value" id="queue-val">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="controls-info">
+          <h3>Scale Concurrency</h3>
+          <p>Add worker threads on demand to observe increased throughput scaling.</p>
+        </div>
+        <button class="btn" id="btn-add" onclick="handleAddWorker()">
+          ➕ Add Worker Thread
+        </button>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      var Module = {
+        print: console.log,
+        printErr: console.error
+      };
+
+      function getWasmExports() {
+        if (typeof Module !== 'undefined' && Module['wasmExports']) {
+          return Module['wasmExports'];
+        }
+        if (typeof wasmExports !== 'undefined') {
+          return wasmExports;
+        }
+        if (typeof window !== 'undefined' && window.wasmExports) {
+          return window.wasmExports;
+        }
+        return null;
+      }
+
+      // Periodic performance sampling
+      var lastCompleted = 0;
+      var lastTime = performance.now();
+
+      function updateDashboard() {
+        var exports = getWasmExports();
+        if (!exports) return;
+
+        var getCompleted = exports['get_tasks_completed'];
+        var getWorkers = exports['get_worker_count'];
+        var getQueue = exports['get_queue_size'];
+
+        if (getCompleted) {
+          var current = getCompleted();
+          var now = performance.now();
+          var dt = (now - lastTime) / 1000.0;
+
+          if (dt >= 0.75) {
+            var rate = Math.round((current - lastCompleted) / dt);
+            document.getElementById('rate-val').textContent = rate.toLocaleString();
+            lastCompleted = current;
+            lastTime = now;
+          }
+
+          document.getElementById('total-val').textContent = current.toLocaleString();
+        }
+
+        if (getWorkers) {
+          document.getElementById('worker-val').textContent = getWorkers();
+        }
+
+        if (getQueue) {
+          document.getElementById('queue-val').textContent = getQueue();
+        }
+      }
+
+      setInterval(updateDashboard, 200);
+
+      function handleAddWorker() {
+        var exports = getWasmExports();
+        if (exports && exports['add_worker']) {
+          var count = exports['add_worker']();
+          document.getElementById('worker-val').textContent = count;
+        }
+      }
+    </script>
+    <script async type="text/javascript" src="runtime.js"></script>
+  </body>
+</html>

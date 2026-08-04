@@ -1,8 +1,8 @@
 (module
   ;; Function types matching runtime interface
   (type $thread_fn (shared (func (param (ref null (shared any))))))
-  (type $mutex (shared (struct (field (mut i32)) (field (ref (shared waitqueue))))))
-  (type $thread_arg (shared (struct (field i32) (field (ref $mutex)))))
+  (type $mutex (shared (struct (field $state (mut i32)) (field $waitqueue (ref (shared waitqueue))))))
+  (type $thread_arg (shared (struct (field $id i32) (field $lock (ref $mutex)))))
 
   ;; Imported string constant (prefix)
   (import "'" "hello from thread " (global $str_prefix (ref extern)))
@@ -30,8 +30,8 @@
     (local $msg (ref extern))
 
     (local.set $info (ref.cast (ref $thread_arg) (local.get $arg)))
-    (local.set $id (struct.get $thread_arg 0 (local.get $info)))
-    (local.set $lock (struct.get $thread_arg 1 (local.get $info)))
+    (local.set $id (struct.get $thread_arg $id (local.get $info)))
+    (local.set $lock (struct.get $thread_arg $lock (local.get $info)))
 
     ;; Construct "hello from thread <id>" using string builtins
     ;; 48 is ASCII '0', so 48 + id gives the digit character code

@@ -1,13 +1,13 @@
 (module
   ;; Shared types
   (type $thread_fn (shared (func (param (ref null (shared any))))))
-  (type $mutex (shared (struct (field (mut i32)) (field (ref (shared waitqueue))))))
+  (type $mutex (shared (struct (field $state (mut i32)) (field $waitqueue (ref (shared waitqueue))))))
   (type $philosopher_arg (shared (struct
-    (field i32)            ;; philosopher id (0..4)
-    (field (ref $mutex))   ;; first fork to acquire
-    (field (ref $mutex))   ;; second fork to acquire
-    (field i32)            ;; total eating rounds
-    (field (ref $mutex))   ;; console log mutex
+    (field $id i32)            ;; philosopher id (0..4)
+    (field $fork_a (ref $mutex))   ;; first fork to acquire
+    (field $fork_b (ref $mutex))   ;; second fork to acquire
+    (field $total_rounds i32)      ;; total eating rounds
+    (field $log_lock (ref $mutex)) ;; console log mutex
   )))
 
   ;; String constants
@@ -80,11 +80,11 @@
     (local $round i32)
 
     (local.set $info (ref.cast (ref $philosopher_arg) (local.get $arg)))
-    (local.set $id (struct.get $philosopher_arg 0 (local.get $info)))
-    (local.set $fork_a (struct.get $philosopher_arg 1 (local.get $info)))
-    (local.set $fork_b (struct.get $philosopher_arg 2 (local.get $info)))
-    (local.set $total_rounds (struct.get $philosopher_arg 3 (local.get $info)))
-    (local.set $log_lock (struct.get $philosopher_arg 4 (local.get $info)))
+    (local.set $id (struct.get $philosopher_arg $id (local.get $info)))
+    (local.set $fork_a (struct.get $philosopher_arg $fork_a (local.get $info)))
+    (local.set $fork_b (struct.get $philosopher_arg $fork_b (local.get $info)))
+    (local.set $total_rounds (struct.get $philosopher_arg $total_rounds (local.get $info)))
+    (local.set $log_lock (struct.get $philosopher_arg $log_lock (local.get $info)))
 
     (local.set $round (i32.const 1))
     (loop $eat_loop

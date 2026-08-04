@@ -1,6 +1,6 @@
 (module
   ;; Mutex type with a lock state field (0 = unlocked, 1 = locked) and a waitqueue reference
-  (type $mutex (shared (struct (field (mut i32)) (field (ref (shared waitqueue))))))
+  (type $mutex (shared (struct (field $state (mut i32)) (field $waitqueue (ref (shared waitqueue))))))
 
   ;; Query the runtime to check if the current thread supports atomic waiting
   (import "runtime" "thread_supports_wait" (func $thread_supports_wait (result i32)))
@@ -12,7 +12,7 @@
 
   ;; Attempts to acquire the mutex without blocking. Returns 1 if acquired, 0 otherwise.
   (func $mutex_try_lock (export "mutex_try_lock") (param $m (ref $mutex)) (result i32)
-    (i32.eqz (struct.atomic.rmw.cmpxchg $mutex 0 (local.get $m) (i32.const 0) (i32.const 1)))
+    (i32.eqz (struct.atomic.rmw.cmpxchg $mutex $state (local.get $m) (i32.const 0) (i32.const 1)))
   )
 
   ;; Acquires the mutex. If the lock is held:
@@ -39,9 +39,9 @@
         (if (local.get $can_wait)
           (then
             (drop
-              (struct.wait $mutex 0
+              (struct.wait $mutex $state
                 (local.get $m)
-                (struct.get $mutex 1 (local.get $m))
+                (struct.get $mutex $waitqueue (local.get $m))
                 (i32.const 1)
                 (i64.const -1)
               )
@@ -55,7 +55,7 @@
 
   ;; Releases the mutex and notifies one waiting thread on the waitqueue.
   (func (export "mutex_unlock") (param $m (ref $mutex))
-    (drop (struct.atomic.rmw.xchg $mutex 0 (local.get $m) (i32.const 0)))
-    (drop (waitqueue.notify (struct.get $mutex 1 (local.get $m)) (i32.const 1)))
+    (drop (struct.atomic.rmw.xchg $mutex $state (local.get $m) (i32.const 0)))
+    (drop (waitqueue.notify (struct.get $mutex $waitqueue (local.get $m)) (i32.const 1)))
   )
 )
