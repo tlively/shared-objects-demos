@@ -1,0 +1,7 @@
+build/
+.deps/
+index.html
+*.wasm
+*.js
+!runtime.c
+!runtime.wat
