@@ -156,6 +156,8 @@ A fair, hybrid waitqueue mutex designed for shared Wasm GC objects.
 │   └── serve.py         # Local HTTP server with COOP/COEP headers
 ├── common/
 │   └── mutex.wat        # Waitqueue-based mutex with struct.wait and runtime thread wait detection
-└── hello/               # Multithreaded "Hello, World!" demonstration
-    └── main.wat         # Spawns worker threads using string constants & string builtins
+├── hello/               # Multithreaded "Hello, World!" demonstration
+│   └── main.wat         # Spawns worker threads using string constants & string builtins
+└── philosophers/        # Dining Philosophers demonstration
+    └── main.wat         # Multithreaded deadlock-free dining philosophers with mutexes
 ```

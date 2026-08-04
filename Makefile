@@ -18,7 +18,7 @@ BUILD_DIR = build
 DEP_DIR = .deps
 
 # Demos list
-DEMOS = hello
+DEMOS = hello philosophers
 
 # Discover .wat source files in demo and runtime directories
 WAT_SRCS = $(wildcard $(addsuffix /*.wat,$(DEMOS)) common/*.wat runtime.wat)
