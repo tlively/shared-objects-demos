@@ -1,20 +1,26 @@
 (module
   ;; Function types matching runtime interface
   (type $thread_fn (shared (func (param (ref null (shared any))))))
+  (type $thread (shared (struct
+    (field $id i32)
+    (field $status (mut i32))
+    (field $waitqueue (ref (shared waitqueue)))
+  )))
   (type $mutex (shared (struct (field $state (mut i32)) (field $waitqueue (ref (shared waitqueue))))))
   (type $thread_arg (shared (struct (field $id i32) (field $lock (ref $mutex)))))
 
   ;; Imported string constant (prefix)
-  (import "'" "hello from thread " (global $str_prefix (ref extern)))
+  (import "'" "hello from thread " (global $str_prefix (ref (shared extern))))
 
   ;; String builtins from "wasm:js-string"
-  (import "wasm:js-string" "concat" (func $string_concat (param externref externref) (result (ref extern))))
-  (import "wasm:js-string" "fromCodePoint" (func $string_fromCodePoint (param i32) (result (ref extern))))
+  (import "wasm:js-string" "concat" (func $string_concat (param (ref null (shared extern)) (ref null (shared extern))) (result (ref (shared extern)))))
+  (import "wasm:js-string" "fromCodePoint" (func $string_fromCodePoint (param i32) (result (ref (shared extern)))))
 
   ;; Runtime wrappers imported from "runtime"
-  (import "runtime" "spawn_thread" (func $spawn_thread (param (ref $thread_fn)) (param (ref null (shared any))) (result i32)))
-  (import "runtime" "join_thread" (func $join_thread (param i32) (result i32)))
-  (import "runtime" "console_log" (func $console_log (param externref)))
+  (import "runtime" "thread_spawn" (func $thread_spawn (param (ref $thread_fn)) (param (ref null (shared any))) (result (ref $thread))))
+  (import "runtime" "thread_join" (func $thread_join (param (ref $thread)) (result i32)))
+  (import "runtime" "thread_exit" (func $thread_exit))
+  (import "runtime" "console_log" (func $console_log (param (ref null (shared extern)))))
 
   ;; Mutex synchronization primitives imported from "common/mutex"
   (import "common/mutex" "mutex_new" (func $mutex_new (result (ref $mutex))))
@@ -26,8 +32,8 @@
     (local $info (ref $thread_arg))
     (local $id i32)
     (local $lock (ref $mutex))
-    (local $id_str (ref extern))
-    (local $msg (ref extern))
+    (local $id_str (ref (shared extern)))
+    (local $msg (ref (shared extern)))
 
     (local.set $info (ref.cast (ref $thread_arg) (local.get $arg)))
     (local.set $id (struct.get $thread_arg $id (local.get $info)))
@@ -42,26 +48,32 @@
     (call $mutex_lock (local.get $lock))
     (call $console_log (local.get $msg))
     (call $mutex_unlock (local.get $lock))
+
+    ;; Signal thread exit
+    (call $thread_exit)
   )
 
-  ;; Main entry point function exported for runtime.c main()
-  (func (export "wasm_main")
+  ;; Main entry point function exported for runtime
+  (func (export "main")
     (local $lock (ref $mutex))
-    (local $t1 i32)
-    (local $t2 i32)
-    (local $t3 i32)
+    (local $t1 (ref $thread))
+    (local $t2 (ref $thread))
+    (local $t3 (ref $thread))
 
     ;; Initialize the shared waitqueue mutex
     (local.set $lock (call $mutex_new))
 
     ;; Spawn 3 worker threads with IDs 1, 2, and 3
-    (local.set $t1 (call $spawn_thread (ref.func $worker) (struct.new $thread_arg (i32.const 1) (local.get $lock))))
-    (local.set $t2 (call $spawn_thread (ref.func $worker) (struct.new $thread_arg (i32.const 2) (local.get $lock))))
-    (local.set $t3 (call $spawn_thread (ref.func $worker) (struct.new $thread_arg (i32.const 3) (local.get $lock))))
+    (local.set $t1 (call $thread_spawn (ref.func $worker) (struct.new $thread_arg (i32.const 1) (local.get $lock))))
+    (local.set $t2 (call $thread_spawn (ref.func $worker) (struct.new $thread_arg (i32.const 2) (local.get $lock))))
+    (local.set $t3 (call $thread_spawn (ref.func $worker) (struct.new $thread_arg (i32.const 3) (local.get $lock))))
 
     ;; Wait for all worker threads to finish
-    (drop (call $join_thread (local.get $t1)))
-    (drop (call $join_thread (local.get $t2)))
-    (drop (call $join_thread (local.get $t3)))
+    (drop (call $thread_join (local.get $t1)))
+    (drop (call $thread_join (local.get $t2)))
+    (drop (call $thread_join (local.get $t3)))
+
+    ;; Clean up runtime workers
+    (call $thread_exit)
   )
 )

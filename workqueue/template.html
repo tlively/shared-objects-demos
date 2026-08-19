@@ -201,16 +201,7 @@
       };
 
       function getWasmExports() {
-        if (typeof Module !== 'undefined' && Module['wasmExports']) {
-          return Module['wasmExports'];
-        }
-        if (typeof wasmExports !== 'undefined') {
-          return wasmExports;
-        }
-        if (typeof window !== 'undefined' && window.wasmExports) {
-          return window.wasmExports;
-        }
-        return null;
+        return (window.Module && window.Module.wasmExports) || null;
       }
 
       // Periodic performance sampling
