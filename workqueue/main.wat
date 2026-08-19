@@ -1,6 +1,11 @@
 (module
   ;; Shared types
   (type $thread_fn (shared (func (param (ref null (shared any))))))
+  (type $thread (shared (struct
+    (field $id i32)
+    (field $status (mut i32))
+    (field $waitqueue (ref (shared waitqueue)))
+  )))
   (type $mutex (shared (struct (field $state (mut i32)) (field $waitqueue (ref (shared waitqueue))))))
   (type $node (shared (struct (field $val (ref null (shared any))) (field $next (mut (ref null $node))))))
   (type $queue (shared (struct
@@ -20,8 +25,9 @@
     (field $metrics (ref $metrics))
   )))
 
-  ;; Imports from JS runtime environment ("env")
-  (global $shared_heap_root (import "env" "_shared_heap_root") (mut (ref null (shared any))))
+  ;; Imports from runtime module
+  (import "runtime" "get_shared_root" (func $get_shared_root (result (ref null (shared any)))))
+  (import "runtime" "set_shared_root" (func $set_shared_root (param (ref null (shared any)))))
 
   ;; Dependencies from common/queue and runtime
   (import "common/queue" "queue_new" (func $queue_new (result (ref $queue))))
@@ -29,28 +35,30 @@
   (import "common/queue" "queue_pop" (func $queue_pop (param (ref $queue)) (result (ref null (shared any)))))
   (import "common/queue" "queue_size" (func $queue_size (param (ref $queue)) (result i32)))
 
-  (import "runtime" "spawn_thread" (func $spawn_thread (param (ref $thread_fn)) (param (ref null (shared any))) (result i32)))
+  (import "runtime" "thread_spawn" (func $thread_spawn (param (ref $thread_fn)) (param (ref null (shared any))) (result (ref $thread))))
 
   ;; Helper to retrieve the shared context from the runtime shared heap root
   (func $get_context (result (ref null $context))
-    (if (ref.is_null (global.get $shared_heap_root))
+    (local $root (ref null (shared any)))
+    (local.set $root (call $get_shared_root))
+    (if (ref.is_null (local.get $root))
       (then (return (ref.null (shared none))))
     )
-    (ref.cast (ref $context) (global.get $shared_heap_root))
+    (ref.cast (ref $context) (local.get $root))
   )
 
-  ;; Startup function: allocates and assigns the shared context into _shared_heap_root on main thread
+  ;; Startup function: allocates and assigns the shared context into shared heap root on main thread
   (func $init
     (local $q (ref $queue))
     (local $m (ref $metrics))
     (local $ctx (ref $context))
 
-    (if (ref.is_null (global.get $shared_heap_root))
+    (if (ref.is_null (call $get_shared_root))
       (then
         (local.set $q (call $queue_new))
         (local.set $m (struct.new $metrics (i32.const 0) (i32.const 0)))
         (local.set $ctx (struct.new $context (local.get $q) (local.get $m)))
-        (global.set $shared_heap_root (local.get $ctx))
+        (call $set_shared_root (local.get $ctx))
       )
     )
   )
@@ -133,7 +141,7 @@
       (then (return (i32.const 0)))
     )
     (local.set $m (struct.get $context $metrics (ref.as_non_null (local.get $ctx))))
-    (drop (call $spawn_thread (ref.func $worker_fn) (local.get $ctx)))
+    (drop (call $thread_spawn (ref.func $worker_fn) (local.get $ctx)))
     (local.set $count (i32.add (struct.atomic.rmw.add $metrics $worker_count (local.get $m) (i32.const 1)) (i32.const 1)))
     (local.get $count)
   )
@@ -168,8 +176,8 @@
     (call $queue_size (struct.get $context $queue (ref.as_non_null (local.get $ctx))))
   )
 
-  ;; Main entry point function exported for runtime.c main()
-  (func (export "wasm_main")
+  ;; Main entry point function exported for runtime
+  (func (export "main")
     (local $ctx (ref null $context))
     (local.set $ctx (call $get_context))
     (if (ref.is_null (local.get $ctx))
@@ -177,7 +185,7 @@
     )
 
     ;; Spawn producer thread
-    (drop (call $spawn_thread (ref.func $producer_fn) (local.get $ctx)))
+    (drop (call $thread_spawn (ref.func $producer_fn) (local.get $ctx)))
 
     ;; Spawn initial worker threads (2 workers)
     (drop (call $add_worker))
